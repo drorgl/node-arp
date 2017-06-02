@@ -87,14 +87,14 @@ function normalize_arp_ip(ip: string): string {
 	return ip;
 }
 
-function normalize_mac(mac: string): string{
+function normalize_mac(mac: string): string {
 	return mac.replace(/[:-]/g, ":");
 }
 
 export function readARPLinux(ipaddress: string, cb: (err: Error, result?: IARPRecord[]) => void) {
 	let arp: child_process.ChildProcess;
 	if (ipaddress) {
-		arp = spawn("arp", ["-a", "-n", ipaddress]);
+		arp = spawn("arp", ["-a", ipaddress]);
 	} else {
 		arp = spawn("arp", ["-a"]);
 	}
@@ -122,8 +122,8 @@ export function readARPLinux(ipaddress: string, cb: (err: Error, result?: IARPRe
 
 		// new format:
 		// gateway (10.0.0.138) at e8:fc:af:a1:f7:17 [ether] on wlan0
-		const table = buffer.split("\n");
-		if (table.length >= 1) {
+		const table = buffer.split("\n").filter((v) => (v != null) && (v !== ""));
+		if (table.length >= 1 && buffer.indexOf("no match found") === -1) {
 			const result = table.map((v, i, a) => {
 				const sections = v.split(" ");
 				const arp_record: IARPRecord = {
@@ -190,6 +190,11 @@ export function readARPWindows(ipaddress: string, cb: (err: Error, result?: IARP
 		if (code !== 0) {
 			// console.log("Error running arp " + code + " " + errstream);
 			cb(new Error("Error running arp " + code + " " + errstream));
+			return;
+		}
+
+		if (buffer.indexOf("No ARP Entries Found") !== -1) {
+			cb(new Error("Count not find ip in arp table: " + ipaddress));
 			return;
 		}
 

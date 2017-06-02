@@ -67,12 +67,20 @@ tapestream.on("end", () => {
 });
 
 tape("arp", (t) => {
-	t.plan(2);
+	t.plan(3);
 	arp.getMAC("255.255.255.255", (err, result) => {
-		t.equal("ff:ff:ff:ff:ff:ff", result.mac, "got router mac address: " + JSON.stringify(result));
+		if (process.platform.indexOf("win") === 0) {
+			t.equal(result.mac, "ff:ff:ff:ff:ff:ff", "got router mac address: " + JSON.stringify(result));
+		} else {
+			t.pass("can't check generic mac address on anything other than windows os");
+		}
 	});
 
 	arp.getARPTable(null, (err, result) => {
 		t.ok(result.length > 0, "got arp table" + JSON.stringify(result, null, "\t"));
+	});
+
+	arp.getMAC("0.0.0.0", (err, result) => {
+		t.ok(err, "no mac found");
 	});
 });
