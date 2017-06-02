@@ -28,10 +28,9 @@ export function getMAC(ipaddress: string, cb: (err: Error, result?: IARPRecord) 
 		readMACLinux(ipaddress, cb);
 	} else if (process.platform.indexOf("win") === 0) {
 		readMACWindows(ipaddress, cb);
+	} else if (process.platform.indexOf("darwin") === 0) {
+		readMACMac(ipaddress, cb);
 	}
-	// else if (process.platform.indexOf("darwin") === 0) {
-	// 	readMACMac(ipaddress, cb);
-	// }
 }
 
 export function getARPTable(ipaddress: string, cb: (err: Error, result?: IARPRecord[]) => void) {
@@ -39,10 +38,9 @@ export function getARPTable(ipaddress: string, cb: (err: Error, result?: IARPRec
 		readARPLinux(ipaddress, cb);
 	} else if (process.platform.indexOf("win") === 0) {
 		readARPWindows(ipaddress, cb);
+	} else if (process.platform.indexOf("darwin") === 0) {
+		readARPMac(ipaddress, cb);
 	}
-	// else if (process.platform.indexOf("darwin") === 0) {
-	// 	readMACMac(ipaddress, cb);
-	// }
 }
 
 /**
@@ -231,48 +229,73 @@ export function readARPWindows(ipaddress: string, cb: (err: Error, result?: IARP
 	});
 }
 
-// /**
-//  * read from arp -n IPADDRESS
-//  */
-// export function readMACMac(ipaddress: string, cb: (err: Error, result?: IARPRecord) => void) {
+/**
+ * read from arp -n IPADDRESS
+ */
+export function readMACMac(ipaddress: string, cb: (err: Error, result?: IARPRecord) => void) {
 
-// 	// ping the ip address to encourage the kernel to populate the arp tables
-// 	const ping = spawn("ping", ["-c", "1", ipaddress]);
+	// ping the ip address to encourage the kernel to populate the arp tables
+	const ping = spawn("ping", ["-c", "1", ipaddress]);
 
-// 	ping.on("close", (ping_code) => {
-// 		// not bothered if ping did not work
+	ping.on("close", (ping_code) => {
+		// not bothered if ping did not work
+		readARPMac(ipaddress, (arp_err, arp_result) => {
+			if (arp_err) {
+				cb(arp_err);
+				return;
+			}
 
-// 		const arp = spawn("arp", ["-n", ipaddress]);
-// 		let buffer = "";
-// 		let errstream = "";
-// 		arp.stdout.on("data", (data) => {
-// 			buffer += data;
-// 		});
-// 		arp.stderr.on("data", (data) => {
-// 			errstream += data;
-// 		});
+			if (arp_result.length) {
+				cb(null, arp_result[0]);
+				return;
+			}
 
-// 		arp.on("close", (code) => {
-// 			// On lookup failed OSX returns code 1
-// 			// but errstream will be empty
-// 			if (code !== 0 && errstream !== "") {
-// 				// console.log("Error running arp " + code + " " + errstream);
-// 				cb(new Error("Error running arp " + code + " " + errstream));
-// 				return;
-// 			}
+			cb(new Error("no results"));
+		});
+	});
 
-// 			// parse this format
-// 			// Lookup succeeded : HOST (IPADDRESS) at MACADDRESS on IFACE ifscope [ethernet]
-// 			// Lookup failed : HOST (IPADDRESS) -- no entry
-// 			const parts = buffer.split(" ").filter(String);
-// 			if (parts[3] !== "no") {
-// 				const mac = parts[3].replace(/^0:/g, "00:").replace(/:0:/g, ":00:").replace(/:0$/g, ":00");
-// 				cb(null, mac);
-// 				return;
-// 			}
+}
 
-// 			cb(new Error("Count not find ip in arp table: " + ipaddress));
-// 		});
-// 	});
+export function readARPMac(ipaddress: string, cb: (err: Error, result?: IARPRecord[]) => void) {
+	const arp = spawn("arp", ["-n", ipaddress]);
+	let buffer = "";
+	let errstream = "";
+	arp.stdout.on("data", (data) => {
+		buffer += data;
+	});
+	arp.stderr.on("data", (data) => {
+		errstream += data;
+	});
 
-// }
+	arp.on("close", (code) => {
+		// On lookup failed OSX returns code 1
+		// but errstream will be empty
+		if (code !== 0 && errstream !== "") {
+			// console.log("Error running arp " + code + " " + errstream);
+			cb(new Error("Error running arp " + code + " " + errstream));
+			return;
+		}
+
+		// parse this format
+		// Lookup succeeded : HOST (IPADDRESS) at MACADDRESS on IFACE ifscope [ethernet]
+		// Lookup failed : HOST (IPADDRESS) -- no entry
+
+		const table = buffer.split("\n").filter((v) => (v != null) && (v !== ""));
+		if (table.length >= 1 && buffer.indexOf("no entry") === -1) {
+			const result = table.map((v, i, a) => {
+				const sections = v.split(" ");
+				const arp_record: IARPRecord = {
+					name: sections[0],
+					ip: (sections.length > 1) ? normalize_arp_ip(sections[1]) : null,
+					mac: (sections.length > 3) ? normalize_mac(sections[3]) : null,
+					interface: (sections.length > 5) ? sections[5] : null
+				};
+				return arp_record;
+			});
+			cb(null, result);
+			return;
+		}
+
+		cb(new Error("Count not find ip in arp table: " + ipaddress));
+	});
+}
